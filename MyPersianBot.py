@@ -1,23 +1,31 @@
 import logging
-import os # اضافه کردن این کتابخانه
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CallbackQueryHandler, CommandHandler
 from telegram.request import HTTPXRequest
 from deep_translator import GoogleTranslator
 
-# --- خواندن اطلاعات از متغیرهای محیطی ---
-TOKEN = os.environ.get("8458479260:AAHlcMSYBTK7MS7iGhKvOad1yEfxLFXyE-M")
-CHANNEL_ID = int(os.environ.get(" -1001257817278"))
-USERNAME = os.environ.get("HaMaGhT")
-CHANNEL_LINK = os.environ.get("iTsAnarchy")
+# --- خواندن اطلاعات از متغیرهای محیطی Render ---
+# این بخش باید دقیقاً به همین شکل باشد و نباید آن را تغییر دهید
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
+CHANNEL_ID = int(os.environ.get("YOUR_CHANNEL_ID"))
+USERNAME = os.environ.get("YOUR_USERNAME")
+CHANNEL_LINK = os.environ.get("YOUR_CHANNEL_LINK")
 
+# --- ساخت آبجکت‌ها ---
 translator = GoogleTranslator(source='auto', target='fa')
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+# تنظیمات لاگ
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
+# توابع ربات (این بخش‌ها صحیح هستند و نیازی به تغییر ندارند)
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    keyboard = [[InlineKeyboardButton("Contact", url=f"https.me/{USERNAME}"), InlineKeyboardButton("Channel", url=f"https.me/{CHANNEL_LINK}")]]
+    keyboard = [[InlineKeyboardButton("Contact", url=f"https://t.me/{USERNAME}"), InlineKeyboardButton("Channel", url=f"https://t.me/{CHANNEL_LINK}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_html(rf"سلام {user.mention_html()} عزیز،\nاین ربات برای استفاده های غریبه نیست.", reply_markup=reply_markup)
 
