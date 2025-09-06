@@ -30,8 +30,7 @@ def index():
 
 # --- لیست سایت‌ها و User-Agentها ---
 USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 ]
 SITES = [
     {'name': 'AZLyrics', 'search_url': 'https://search.azlyrics.com/search.php?q={query}', 'lyrics_selector': 'div.ringtone ~ div', 'base_url': 'https://www.azlyrics.com'},
@@ -54,10 +53,8 @@ def db_query(query, params=()):
 
 def init_db():
     logger.info("Initializing database...")
-    db_query('CREATE TABLE IF NOT EXISTS translations (text TEXT PRIMARY KEY, translation TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)')
-    db_query('CREATE TABLE IF NOT EXISTS lyrics (song_title TEXT PRIMARY KEY, lyrics TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)')
-    db_query('DELETE FROM translations WHERE timestamp < date("now", "-30 days")')
-    db_query('DELETE FROM lyrics WHERE timestamp < date("now", "-30 days")')
+    db_query('CREATE TABLE IF NOT EXISTS translations (text TEXT PRIMARY KEY, translation TEXT)')
+    db_query('CREATE TABLE IF NOT EXISTS lyrics (song_title TEXT PRIMARY KEY, lyrics TEXT)')
     logger.info("Database initialized successfully.")
 
 # --- توابع اصلی ---
@@ -141,24 +138,28 @@ def get_song_details(message):
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     args = context.args
-    if args and args[0].startswith('lyrics_'):
+    
+    # --- بخش بازنویسی شده دیپ لینک ---
+    if args and args[0].startswith('lyrics__'):
+        await update.message.reply_text("Processing your request, please wait...")
         try:
-            _, song_info = args[0].split('_', 1)
-            artist, title = song_info.rsplit('_by_', 1)
-            artist = unquote_plus(artist)
-            title = unquote_plus(title)
-
-            await update.message.reply_text("Searching for lyrics, please wait...")
-            lyrics_text = await scrape_lyrics(title, artist)
-            await update.message.reply_text(lyrics_text, parse_mode='Markdown')
-        except ValueError:
-             await update.message.reply_text("Error: The link is malformed. Please try clicking the button in the channel again.")
+            # استفاده از یک جداکننده مطمئن و یکتا
+            payload_parts = args[0].split('__')
+            if len(payload_parts) == 3:
+                artist = unquote_plus(payload_parts[1])
+                title = unquote_plus(payload_parts[2])
+                
+                lyrics_text = await scrape_lyrics(title, artist)
+                await update.message.reply_text(lyrics_text, parse_mode='Markdown')
+            else:
+                await update.message.reply_text("Error: The link is invalid. Please try clicking the button in the channel again.")
         except Exception as e:
             logger.error(f"Deep link failed: {e}", exc_info=True)
-            await update.message.reply_text("An unexpected error occurred while processing the song request.")
+            await update.message.reply_text("An unexpected error occurred. Please try again.")
     else:
+        # پیام استارت عادی
         channel_id_str = str(CHANNEL_ID).replace('-100', '')
-        channel_link = f"https://t.me/c/{channel_id_str}"
+        channel_link = f"https://t.me/c/{channel_id_str}" if CHANNEL_ID < -1000000000000 else f"https://t.me/{CHANNEL_ID}"
         keyboard = [[InlineKeyboardButton("Contact", url=f"https://t.me/{USERNAME}"), InlineKeyboardButton("Channel", url=channel_link)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_html(rf"Hello {user.mention_html()},\nThis bot provides translation and lyrics.", reply_markup=reply_markup)
@@ -174,24 +175,20 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             artist, title = get_song_details(message)
             if artist and title:
+                # استفاده از یک جداکننده مطمئن و یکتا
                 safe_artist = quote_plus(artist)
                 safe_title = quote_plus(title)
-                payload = f"lyrics_{safe_title}_by_{safe_artist}"
+                payload = f"lyrics__{safe_artist}__{safe_title}"
                 
-                # رفع باگ اصلی: دریافت نام کاربری ربات به صورت مستقیم و مطمئن
-                bot_username = context.bot.username
-                deep_link = f"https://t.me/{bot_username}?start={payload}"
-                
+                deep_link = f"https://t.me/{context.bot.username}?start={payload}"
                 keyboard = [[InlineKeyboardButton("📜 Show Lyrics", url=deep_link)]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
                 if message.audio:
-                    current_caption = message.caption or f"{title} - {artist}"
-                    await message.edit_caption(caption=current_caption, reply_markup=reply_markup)
+                    # حذف ویرایش کپشن غیرضروری
+                    await message.edit_reply_markup(reply_markup)
                 elif message.document:
                     await message.reply_text("Click here for lyrics:", reply_markup=reply_markup)
-            else:
-                logger.warning("Post was not text or a recognized audio format.")
     except Exception as e:
         logger.error(f"Error in handle_channel_post: {e}", exc_info=True)
 
