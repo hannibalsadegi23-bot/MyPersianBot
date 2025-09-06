@@ -2,7 +2,7 @@ import logging
 import os
 import threading
 from flask import Flask
-import google.generativeai as genai
+from deep_translator import GoogleTranslator  # <--- بازگشت به مترجم استاندارد
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CallbackQueryHandler, CommandHandler
 from telegram.request import HTTPXRequest
@@ -10,22 +10,17 @@ from telegram.error import BadRequest
 
 # --- خواندن اطلاعات از متغیرهای محیطی Render ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 CHANNEL_ID = int(os.environ.get("YOUR_CHANNEL_ID"))
 USERNAME = os.environ.get("YOUR_USERNAME")
 CHANNEL_LINK = os.environ.get("YOUR_CHANNEL_LINK")
 
-# --- راه‌اندازی جمینی (با مدل FLASH برای سرعت و سهمیه بیشتر) ---
-model = None
+# --- راه‌اندازی مترجم استاندارد گوگل ---
 try:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
-    print("Gemini AI (Flash Model) configured successfully.")
+    translator = GoogleTranslator(source='auto', target='fa')
+    print("Google Translator configured successfully.")
 except Exception as e:
-    print(f"CRITICAL ERROR initializing Gemini: {e}")
-
-# --- ساخت حافظه پنهان (Cache) برای ترجمه‌ها ---
-translation_cache = {}
+    print(f"CRITICAL ERROR initializing Google Translator: {e}")
+    translator = None
 
 # --- تنظیمات لاگ و وب‌سرور ---
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -35,17 +30,15 @@ app = Flask(__name__)
 def index(): return "Bot is alive and running!"
 def run_flask(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
 
-# --- تابع ترجمه با هوش مصنوعی ---
-def translate_with_gemini(text_to_translate):
-    if not model:
-        return "Error: AI model is not configured."
+# --- تابع ترجمه ---
+def translate_standard(text_to_translate):
+    if not translator:
+        return "Error: Translator is not configured."
     try:
-        prompt = f"""Your task is to translate the following English text into elegant and natural-sounding Persian...""" # Prompt کامل مثل قبل
-        response = model.generate_content(prompt)
-        return response.text.strip()
+        return translator.translate(text_to_translate)
     except Exception as e:
-        logger.error(f"Gemini translation failed: {e}")
-        return "Error during AI translation."
+        logger.error(f"Google Translate failed: {e}")
+        return "Error during translation."
 
 # --- توابع اصلی ربات ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -72,33 +65,22 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     if query.data == 'translate_to_fa':
         try:
             original_text = query.message.text
-            
-            if original_text in translation_cache:
-                translated_text = translation_cache[original_text]
-                logger.info("Translation found in cache!")
-            else:
-                translated_text = translate_with_gemini(original_text)
-                if translated_text and "Error" not in translated_text:
-                    translation_cache[original_text] = translated_text
-                    logger.info("Translation fetched from Gemini and cached.")
+            translated_text = translate_standard(original_text)
 
             if translated_text and len(translated_text) <= 200:
                 await query.answer(text=translated_text, show_alert=True)
             elif translated_text:
                 await query.answer(text="Error: Translated text is too long for a pop-up.", show_alert=True)
             else:
-                await query.answer(text="The AI did not provide a response for this text.", show_alert=True)
+                await query.answer(text="The translator did not provide a response.", show_alert=True)
         except Exception as e:
             logger.error(f"Callback handler failed: {e}", exc_info=True)
-            try:
-                await query.answer(text="Translation Error! The AI might have taken too long.", show_alert=True)
-            except BadRequest:
-                logger.error("Could not send error popup because the query was too old.")
+            await query.answer(text="Translation Error!", show_alert=True)
 
 # --- تابع اصلی اجرای ربات ---
 def main() -> None:
-    if not model:
-        print("Bot is NOT running because Gemini AI failed to initialize.")
+    if not translator:
+        print("Bot is NOT running because the translator failed to initialize.")
         return
         
     flask_thread = threading.Thread(target=run_flask)
@@ -110,7 +92,7 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_channel_post))
     application.add_handler(CallbackQueryHandler(button_callback_handler))
     
-    print("Optimized AI Translator Bot is running on Render...")
+    print("Standard Translator Bot is running on Render...")
     application.run_polling()
 
 if __name__ == '__main__':
