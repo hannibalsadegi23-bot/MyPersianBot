@@ -64,10 +64,8 @@ def init_db():
 async def translate_standard_async(text):
     cached = db_query('SELECT translation FROM translations WHERE text = ?', (text,))
     if cached:
-        logger.info(f"Translation CACHE HIT for: {text[:30]}...")
         return cached[0][0]
     
-    logger.info(f"Translation CACHE MISS. Fetching from Google for: {text[:30]}...")
     async with aiohttp.ClientSession() as session:
         try:
             url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=fa&dt=t&q={quote_plus(text)}"
@@ -77,9 +75,6 @@ async def translate_standard_async(text):
                     translation = "".join([sentence[0] for sentence in data[0] if sentence[0]])
                     db_query('INSERT OR REPLACE INTO translations (text, translation) VALUES (?, ?)', (text, translation))
                     return translation
-                else:
-                    logger.error(f"Google Translate returned status {response.status}")
-                    return "Error: Translation service returned an error."
         except Exception as e:
             logger.error(f"Translation failed: {e}", exc_info=True)
             return "Error during translation."
@@ -99,7 +94,6 @@ async def scrape_lyrics(song_title, artist):
         logger.info(f"Lyrics CACHE HIT for: {query}")
         return cached[0][0]
     
-    logger.info(f"Lyrics CACHE MISS for: {query}. Starting scrape process...")
     async with aiohttp.ClientSession() as session:
         for site in SITES:
             try:
@@ -133,10 +127,8 @@ async def scrape_lyrics(song_title, artist):
 
 def get_song_details(message):
     if message.audio:
-        logger.info("Message is 'Audio' type. Reading metadata.")
         return message.audio.performer, message.audio.title
     elif message.document and message.document.mime_type in ('audio/mpeg', 'audio/mp3'):
-        logger.info("Message is 'Document' type (MP3). Reading filename.")
         filename = message.document.file_name.rsplit('.', 1)[0]
         match = re.match(r'(.*?)\s*[-–—]\s*(.*)', filename)
         if match:
@@ -156,14 +148,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             artist = unquote_plus(artist)
             title = unquote_plus(title)
 
-            await update.message.reply_text("Searching for lyrics...")
+            await update.message.reply_text("Searching for lyrics, please wait...")
             lyrics_text = await scrape_lyrics(title, artist)
             await update.message.reply_text(lyrics_text, parse_mode='Markdown')
+        except ValueError:
+             await update.message.reply_text("Error: The link is malformed. Please try clicking the button in the channel again.")
         except Exception as e:
             logger.error(f"Deep link failed: {e}", exc_info=True)
-            await update.message.reply_text("Error processing song request.")
+            await update.message.reply_text("An unexpected error occurred while processing the song request.")
     else:
-        channel_link = f"https://t.me/{CHANNEL_ID}".replace('-100', '')
+        channel_id_str = str(CHANNEL_ID).replace('-100', '')
+        channel_link = f"https://t.me/c/{channel_id_str}"
         keyboard = [[InlineKeyboardButton("Contact", url=f"https://t.me/{USERNAME}"), InlineKeyboardButton("Channel", url=channel_link)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_html(rf"Hello {user.mention_html()},\nThis bot provides translation and lyrics.", reply_markup=reply_markup)
@@ -172,26 +167,26 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     message = update.channel_post
     if not message or message.chat.id != CHANNEL_ID: return
     
-    logger.info(f"New post in channel {CHANNEL_ID}. Msg ID: {message.message_id}")
     try:
         if message.text:
-            logger.info("Post is text. Adding translate button.")
             keyboard = [[InlineKeyboardButton("Translate", callback_data='translate_text')]]
             await message.edit_reply_markup(InlineKeyboardMarkup(keyboard))
         else:
             artist, title = get_song_details(message)
-            logger.info(f"Extracted song details -> Artist: '{artist}', Title: '{title}'")
             if artist and title:
                 safe_artist = quote_plus(artist)
                 safe_title = quote_plus(title)
                 payload = f"lyrics_{safe_title}_by_{safe_artist}"
-                deep_link = f"https://t.me/{context.bot.username}?start={payload}"
+                
+                # رفع باگ اصلی: دریافت نام کاربری ربات به صورت مستقیم و مطمئن
+                bot_username = context.bot.username
+                deep_link = f"https://t.me/{bot_username}?start={payload}"
                 
                 keyboard = [[InlineKeyboardButton("📜 Show Lyrics", url=deep_link)]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
                 if message.audio:
-                    current_caption = message.caption if message.caption is not None else f"{title} - {artist}"
+                    current_caption = message.caption or f"{title} - {artist}"
                     await message.edit_caption(caption=current_caption, reply_markup=reply_markup)
                 elif message.document:
                     await message.reply_text("Click here for lyrics:", reply_markup=reply_markup)
