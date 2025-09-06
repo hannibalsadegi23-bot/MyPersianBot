@@ -32,8 +32,7 @@ def index():
 # User-Agent‌های چرخشی
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 ]
 
 # سایت‌های لیریکس
@@ -84,7 +83,7 @@ def cache_lyrics(song_title, lyrics):
     conn.commit()
     conn.close()
 
-# تابع ترجمه غیرهمزمان
+# تابع ترجمه
 async def translate_standard_async(text):
     cached = get_cached_translation(text)
     if cached:
@@ -107,7 +106,7 @@ async def translate_standard_async(text):
             except Exception as e:
                 logger.error(f"Translation attempt {attempt + 1} failed: {e}")
                 await asyncio.sleep(2)
-        return "Error during translation."
+        return "خطا در ترجمه. لطفاً بعداً امتحان کنید."
 
 # تابع استخراج اطلاعات آهنگ
 def extract_song_info(caption, audio):
@@ -185,10 +184,10 @@ async def fetch_url(session, url, headers):
 # توابع ربات
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    keyboard = [[InlineKeyboardButton("Contact", url=f"https://t.me/{USERNAME}"), InlineKeyboardButton("Channel", url=f"https://t.me/{CHANNEL_LINK}")]]
+    keyboard = [[InlineKeyboardButton("تماس", url=f"https://t.me/{USERNAME}"), InlineKeyboardButton("کانال", url=f"https://t.me/{CHANNEL_LINK}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_html(
-        rf"Hello {user.mention_html()},\nThis bot provides translations and song lyrics.",
+        rf"سلام {user.mention_html()}،\nاین ربات ترجمه متن و متن آهنگ‌ها رو ارائه می‌ده.",
         reply_markup=reply_markup
     )
 
@@ -200,8 +199,8 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         if message.text:
             keyboard = [
-                [InlineKeyboardButton("Translate (Pop-up)", callback_data='translate_to_fa_popup')],
-                [InlineKeyboardButton("Translate (Chat)", callback_data='translate_to_fa_chat')]
+                [InlineKeyboardButton("ترجمه (پاپ‌آپ)", callback_data='translate_to_fa_popup')],
+                [InlineKeyboardButton("ترجمه (چت)", callback_data='translate_to_fa_chat')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await message.edit_reply_markup(reply_markup=reply_markup)
@@ -220,7 +219,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode='HTML'
             )
     except Exception as e:
-        logger.error(f"Could not add button: {e}")
+        logger.error(f"خطا در افزودن دکمه: {e}")
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -233,7 +232,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if len(translated_text) <= 200:
             await query.answer(text=translated_text, show_alert=True)
         else:
-            await query.answer(text="Translation too long for pop-up. Use 'Translate (Chat)'!", show_alert=True)
+            await query.answer(text="ترجمه برای پاپ‌آپ طولانی‌ست. از 'ترجمه (چت)' استفاده کنید!", show_alert=True)
     elif query.data == 'translate_to_fa_chat':
         await query.message.reply_text(f"ترجمه: {translated_text}", parse_mode='HTML')
 
@@ -251,13 +250,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"🎵 متن آهنگ: {song_title} توسط {artist}\n\n{lyrics}",
             parse_mode='HTML'
         )
-        logger.info(f"Lyrics for '{song_title}' sent to user {user.id}")
+        logger.info(f"لیریکس برای '{song_title}' به کاربر {user.id} ارسال شد")
     else:
         await start_command(update, context)
 
 def main() -> None:
     if not all([TOKEN, CHANNEL_ID, USERNAME, CHANNEL_LINK]):
-        logger.error("Missing environment variables. Bot is NOT running.")
+        logger.error("متغیرهای محیطی ناقص‌اند. ربات اجرا نمی‌شود.")
         return
     
     init_db()
@@ -268,7 +267,7 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST & (filters.TEXT | filters.AUDIO), handle_channel_post))
     application.add_handler(CallbackQueryHandler(button_callback_handler))
     
-    logger.info("Translation & Lyrics Bot is running on Render...")
+    logger.info("ربات ترجمه و لیریکس در حال اجرا روی Render...")
     application.run_polling()
 
 if __name__ == '__main__':
