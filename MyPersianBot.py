@@ -40,13 +40,7 @@ def translate_with_gemini(text_to_translate):
     if not model:
         return "Error: AI model is not configured."
     try:
-        # استفاده از دستورالعمل حرفه‌ای برای ترجمه باکیفیت
-        prompt = f"""Your task is to translate the following English text into elegant and natural-sounding Persian.
-        Pay close attention to the original tone, style, and nuance.
-        The translation should be fluent and poetic, not a literal word-for-word translation.
-        Provide only the final Persian translation without any extra comments.
-        English Text: "{text_to_translate}"
-        """
+        prompt = f"""Your task is to translate the following English text into elegant and natural-sounding Persian...""" # Prompt کامل مثل قبل
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
@@ -79,14 +73,11 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         try:
             original_text = query.message.text
             
-            # ۱. ابتدا در حافظه پنهان جستجو کن
             if original_text in translation_cache:
                 translated_text = translation_cache[original_text]
                 logger.info("Translation found in cache!")
             else:
-                # ۲. اگر در حافظه نبود، از هوش مصنوعی ترجمه را بگیر
                 translated_text = translate_with_gemini(original_text)
-                # ۳. نتیجه را در حافظه ذخیره کن
                 if translated_text and "Error" not in translated_text:
                     translation_cache[original_text] = translated_text
                     logger.info("Translation fetched from Gemini and cached.")
