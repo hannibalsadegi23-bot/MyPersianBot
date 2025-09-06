@@ -166,17 +166,21 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.info(f"Start command from user {user.id}. Full text: '{update.message.text}'")
     if payload_parts and payload_parts[0].startswith('lyrics__'):
         payload = payload_parts[0]
+        logger.info(f"Received payload: {payload}")
         await update.message.reply_text("Processing your request...")
         try:
             parts = payload.split('__')
+            logger.info(f"Split parts: {parts}")
             if len(parts) == 3 and parts[0] == 'lyrics':
-                artist = unquote_plus(parts[1])[:100]  # محدود کردن طول
+                artist = unquote_plus(parts[1])[:100]
                 title = unquote_plus(parts[2])[:100]
+                logger.info(f"Extracted artist: {artist}, title: {title}")
                 if not artist or not title:
                     logger.error("Invalid artist or title in deep link")
                     await update.message.reply_text("Invalid song details. Please try again from the channel.")
                     return
                 lyrics_text = await scrape_lyrics(title, artist)
+                logger.info(f"Lyrics text: {lyrics_text[:50]}...")  # فقط 50 کاراکتر اول
                 await update.message.reply_text(lyrics_text, parse_mode='Markdown')
             else:
                 logger.error(f"Invalid payload format: {payload}")
@@ -208,6 +212,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
                 safe_artist = quote_plus(artist)
                 safe_title = quote_plus(title)
                 payload = f"lyrics__{safe_artist}__{safe_title}"
+                logger.info(f"Generated payload for deep link: {payload}")
                 deep_link = f"https://t.me/{context.bot.username}?start={payload}"
                 keyboard = [[InlineKeyboardButton("📜 Show Lyrics", url=deep_link)]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -245,6 +250,9 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             else:
                 raise e
 
+def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error(f"Exception while handling an update: {context.error}", exc_info=True)
+
 def main() -> None:
     init_db()
     port = int(os.environ.get('PORT', 8080))
@@ -255,7 +263,8 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_channel_post))
     application.add_handler(CallbackQueryHandler(button_callback_handler))
-    logger.info("Starting bot (v48 - Fixed Deeplink)...")
+    application.add_error_handler(error_handler)
+    logger.info("Starting bot (v48 - Enhanced Debug for Deeplink)...")
     application.run_polling()
 
 if __name__ == '__main__':
