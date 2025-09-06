@@ -1,0 +1,16 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENV TELEGRAM_TOKEN=$TELEGRAM_TOKEN
+ENV YOUR_CHANNEL_ID=$YOUR_CHANNEL_ID
+ENV YOUR_USERNAME=$YOUR_USERNAME
+ENV YOUR_CHANNEL_LINK=$YOUR_CHANNEL_LINK
+ENV PORT=8080
+
+CMD ["python", "bot.py"]
