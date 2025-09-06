@@ -1,4 +1,4 @@
 python-telegram-bot
 httpx
 Flask
-google-generativeai
+deep_translator
