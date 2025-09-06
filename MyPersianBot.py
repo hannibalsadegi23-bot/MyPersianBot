@@ -138,28 +138,32 @@ def get_song_details(message):
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     args = context.args
-    
-    # --- بخش بازنویسی شده دیپ لینک ---
-    if args and args[0].startswith('lyrics__'):
+    logger.info(f"Start command received from {user.id}. Raw message text: '{update.message.text}'")
+
+    # --- بخش بازنویسی شده و ضدضربه دیپ لینک ---
+    # ما به جای context.args، مستقیماً از متن پیام استفاده می‌کنیم که مطمئن‌تر است
+    command, *payload_parts = update.message.text.split(' ')
+    if payload_parts and payload_parts[0].startswith('lyrics__'):
+        payload = payload_parts[0]
         await update.message.reply_text("Processing your request, please wait...")
         try:
-            # استفاده از یک جداکننده مطمئن و یکتا
-            payload_parts = args[0].split('__')
-            if len(payload_parts) == 3:
-                artist = unquote_plus(payload_parts[1])
-                title = unquote_plus(payload_parts[2])
+            # استفاده از یک جداکننده مطمئن
+            parts = payload.split('__')
+            if len(parts) == 3 and parts[0] == 'lyrics':
+                artist = unquote_plus(parts[1])
+                title = unquote_plus(parts[2])
                 
                 lyrics_text = await scrape_lyrics(title, artist)
                 await update.message.reply_text(lyrics_text, parse_mode='Markdown')
             else:
-                await update.message.reply_text("Error: The link is invalid. Please try clicking the button in the channel again.")
+                raise ValueError("Invalid payload format")
         except Exception as e:
             logger.error(f"Deep link failed: {e}", exc_info=True)
-            await update.message.reply_text("An unexpected error occurred. Please try again.")
+            await update.message.reply_text("An error occurred while processing the song link. Please try again from the channel.")
     else:
         # پیام استارت عادی
         channel_id_str = str(CHANNEL_ID).replace('-100', '')
-        channel_link = f"https://t.me/c/{channel_id_str}" if CHANNEL_ID < -1000000000000 else f"https://t.me/{CHANNEL_ID}"
+        channel_link = f"https://t.me/c/{channel_id_str}"
         keyboard = [[InlineKeyboardButton("Contact", url=f"https://t.me/{USERNAME}"), InlineKeyboardButton("Channel", url=channel_link)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_html(rf"Hello {user.mention_html()},\nThis bot provides translation and lyrics.", reply_markup=reply_markup)
@@ -175,7 +179,6 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             artist, title = get_song_details(message)
             if artist and title:
-                # استفاده از یک جداکننده مطمئن و یکتا
                 safe_artist = quote_plus(artist)
                 safe_title = quote_plus(title)
                 payload = f"lyrics__{safe_artist}__{safe_title}"
@@ -222,7 +225,7 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_channel_post))
     application.add_handler(CallbackQueryHandler(button_callback_handler))
     
-    logger.info("Starting bot...")
+    logger.info("Starting bot (v47 - Deeplink Fix)...")
     application.run_polling()
 
 if __name__ == '__main__':
