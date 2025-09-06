@@ -1,4 +1,4 @@
-python-telegram-bot
-httpx
-Flask
-deep_translator
+python-telegram-bot==20.7
+aiohttp==3.9.1
+beautifulsoup4==4.12.2
+lxml==5.2.2
