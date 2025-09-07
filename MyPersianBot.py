@@ -6,7 +6,12 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CallbackContext, CallbackQueryHandler, MessageHandler, Filters
 from googletrans import Translator
 
+# تنظیمات اولیه
 TOKEN = os.environ.get('BOT_TOKEN')
+if not TOKEN:
+    print("Error: BOT_TOKEN environment variable is not set!")
+    exit(1)
+
 app = Flask(__name__)
 
 @app.route('/')
@@ -22,7 +27,8 @@ def translate_text(text, dest='fa'):
         translator = Translator()
         translation = translator.translate(text, dest=dest)
         return translation.text
-    except:
+    except Exception as e:
+        print(f"Translation error: {e}")
         return "خطا در ترجمه"
 
 def handle_message(update: Update, context: CallbackContext):
@@ -65,21 +71,17 @@ def run_bot():
         updater.idle()
     except Exception as e:
         print(f"Bot error: {e}")
-        time.sleep(5)
-        run_bot()  # Restart bot on error
+        # به جای ری‌استارت بی‌نهایت، فقط لاگ می‌کنیم
+        # اگه نیاز به ری‌استارت داری، از سیستم مدیریت رندر استفاده کن
 
 if __name__ == "__main__":
-    if not TOKEN:
-        print("Error: BOT_TOKEN environment variable is not set!")
-        exit(1)
-    
     print("Starting application...")
     
-    # Start bot in a separate thread
+    # استارت ربات توی یه ترد جدا
     bot_thread = Thread(target=run_bot)
     bot_thread.daemon = True
     bot_thread.start()
     
-    # Start Flask app
+    # استارت اپلیکیشن Flask
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
