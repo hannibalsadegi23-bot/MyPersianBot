@@ -198,10 +198,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     try:
         if message.text:
-            keyboard = [
-                [InlineKeyboardButton("ترجمه (پاپ‌آپ)", callback_data='translate_to_fa_popup')],
-                [InlineKeyboardButton("ترجمه (چت)", callback_data='translate_to_fa_chat')]
-            ]
+            keyboard = [[InlineKeyboardButton("ترجمه (پاپ‌آپ)", callback_data='translate_to_fa_popup')]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await message.edit_reply_markup(reply_markup=reply_markup)
         elif message.audio:
@@ -232,9 +229,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if len(translated_text) <= 200:
             await query.answer(text=translated_text, show_alert=True)
         else:
-            await query.answer(text="ترجمه برای پاپ‌آپ طولانی‌ست. از 'ترجمه (چت)' استفاده کنید!", show_alert=True)
-    elif query.data == 'translate_to_fa_chat':
-        await query.message.reply_text(f"ترجمه: {translated_text}", parse_mode='HTML')
+            await query.answer(text="ترجمه برای پاپ‌آپ طولانی‌ست. بعداً امتحان کنید!", show_alert=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
