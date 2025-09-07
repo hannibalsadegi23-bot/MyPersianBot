@@ -1,6 +1,5 @@
-python-telegram-bot
-httpx
-Flask
-aiohttp
-beautifulsoup4
-lxml
+python-telegram-bot==20.7
+aiohttp==3.9.1
+beautifulsoup4==4.12.2
+lxml==4.9.3
+flask
