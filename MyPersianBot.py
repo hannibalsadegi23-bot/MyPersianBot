@@ -205,7 +205,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
             audio = message.audio
             caption = message.caption or ""
             song_title, artist = extract_song_info(caption, audio)
-            encoded_title = re.sub(r'[^\w\s]', '', f"{artist} {song_title}").replace(' ', '_')
+            encoded_title = re.sub(r'[^\w\s]', '', f"{song_title} {artist}").replace(' ', '_')
             deep_link = f"https://t.me/{USERNAME}?start=lyrics_{encoded_title}"
             
             keyboard = [[InlineKeyboardButton("🎵 متن آهنگ", url=deep_link)]]
@@ -237,7 +237,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     if args and args[0].startswith('lyrics_'):
         encoded_title = args[0].replace('lyrics_', '')
-        song_title, artist = encoded_title.replace('_', ' ').split(' - ', 1) if ' - ' in encoded_title.replace('_', ' ') else (encoded_title.replace('_', ' '), "Unknown Artist")
+        parts = encoded_title.replace('_', ' ').split()
+        song_title = ' '.join(parts[:-1]) if len(parts) > 1 else parts[0]
+        artist = parts[-1] if len(parts) > 1 else "Unknown Artist"
         
         lyrics = await scrape_lyrics(song_title, artist)
         
