@@ -200,7 +200,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         if message.text:
             keyboard = [[InlineKeyboardButton("ترجمه (پاپ‌آپ)", callback_data='translate_to_fa_popup')]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await message.edit_reply_markup(reply_markup=reply_markup)
+            await message.reply_text(" ", reply_markup=reply_markup)
         elif message.audio:
             audio = message.audio
             caption = message.caption or ""
@@ -210,11 +210,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
             
             keyboard = [[InlineKeyboardButton("🎵 متن آهنگ", url=deep_link)]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await message.edit_caption(
-                caption=caption or f"{song_title} - {artist}",
-                reply_markup=reply_markup,
-                parse_mode='HTML'
-            )
+            await message.reply_text(" ", reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"خطا در افزودن دکمه: {e}")
 
@@ -222,10 +218,10 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     
-    original_text = query.message.text
-    translated_text = await translate_standard_async(original_text)
-    
     if query.data == 'translate_to_fa_popup':
+        original_text = query.message.reply_to_message.text
+        translated_text = await translate_standard_async(original_text)
+        
         if len(translated_text) <= 200:
             await query.answer(text=translated_text, show_alert=True)
         else:
@@ -233,42 +229,35 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    args = context.args
-    
-    if args and args[0].startswith('lyrics_'):
-        encoded_title = args[0].replace('lyrics_', '')
-        parts = encoded_title.replace('_', ' ').split()
-        song_title = ' '.join(parts[:-1]) if len(parts) > 1 else parts[0]
-        artist = parts[-1] if len(parts) > 1 else "Unknown Artist"
+    if context.args and context.args[0].startswith('lyrics_'):
+        song_encoded = context.args[0].replace('lyrics_', '')
+        song_title = song_encoded.replace('_', ' ')
+        lyrics = await scrape_lyrics(song_title, "Unknown Artist")
         
-        lyrics = await scrape_lyrics(song_title, artist)
-        
-        await update.message.reply_text(
-            f"🎵 متن آهنگ: {song_title} توسط {artist}\n\n{lyrics}",
-            parse_mode='HTML'
-        )
-        logger.info(f"لیریکس برای '{song_title}' به کاربر {user.id} ارسال شد")
+        await update.message.reply_text(f"متن آهنگ {song_title}:\n\n{lyrics}")
     else:
         await start_command(update, context)
 
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message and update.message.text and not update.message.text.startswith('/'):
+        translated_text = await translate_standard_async(update.message.text)
+        await update.message.reply_text(f"ترجمه:\n{translated_text}")
+
 def main() -> None:
-    if not all([TOKEN, CHANNEL_ID, USERNAME, CHANNEL_LINK]):
-        logger.error("متغیرهای محیطی ناقص‌اند. ربات اجرا نمی‌شود.")
-        return
-    
+    """راه‌اندازی ربات"""
     init_db()
-    request = HTTPXRequest(connect_timeout=20, read_timeout=20)
-    application = Application.builder().token(TOKEN).request(request).build()
     
+    # ایجاد اپلیکیشن
+    application = Application.builder().token(TOKEN).build()
+
+    # اضافه کردن handlerها
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST & (filters.TEXT | filters.AUDIO), handle_channel_post))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.CHAT_TYPE_CHANNEL, handle_channel_post))
     application.add_handler(CallbackQueryHandler(button_callback_handler))
-    
-    logger.info("ربات ترجمه و لیریکس در حال اجرا روی Render...")
+
+    # شروع ربات
     application.run_polling()
 
-if __name__ == '__main__':
-    import threading
-    flask_thread = threading.Thread(target=app.run, kwargs={'host': '0.0.0.0', 'port': PORT})
-    flask_thread.start()
+if __name__ == "__main__":
     main()
