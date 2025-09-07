@@ -212,7 +212,7 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_channel_post))
     application.add_handler(CallbackQueryHandler(button_callback_handler))
     
-    logger.info("Starting bot (v46 - Deeplink Fix)...")
+    logger.info("Starting bot (MyPersianBot)...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
