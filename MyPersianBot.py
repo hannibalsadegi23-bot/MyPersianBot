@@ -1,87 +1,219 @@
+import logging
 import os
-import time
-from threading import Thread
+import sqlite3
+import re
+import asyncio
+import random
+from urllib.parse import quote_plus, unquote_plus
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CallbackContext, CallbackQueryHandler, MessageHandler, Filters
-from googletrans import Translator
+from telegram.ext import Application, MessageHandler, filters, ContextTypes, CallbackQueryHandler, CommandHandler
+from telegram.request import HTTPXRequest
+from telegram.error import BadRequest
+import aiohttp
+from bs4 import BeautifulSoup
 
-# تنظیمات اولیه
-TOKEN = os.environ.get('BOT_TOKEN')
-if not TOKEN:
-    print("Error: BOT_TOKEN environment variable is not set!")
-    exit(1)
+# --- تنظیمات لاگ ---
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+# --- خواندن اطلاعات از متغیرهای محیطی ---
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
+CHANNEL_ID = int(os.environ.get("YOUR_CHANNEL_ID", 0))
+USERNAME = os.environ.get("YOUR_USERNAME", "YourUsername")
+
+# --- وب‌سرور برای بیدار نگه داشتن ---
 app = Flask(__name__)
-
 @app.route('/')
-def home():
-    return "ربات تلگرام در حال اجراست!"
+def index():
+    return "Bot is alive!"
 
-@app.route('/health')
-def health():
-    return "OK", 200
+# --- لیست سایت‌ها و User-Agentها ---
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+]
+SITES = [
+    {'name': 'AZLyrics', 'search_url': 'https://search.azlyrics.com/search.php?q={query}', 'lyrics_selector': 'div.ringtone ~ div', 'base_url': 'https://www.azlyrics.com'},
+    {'name': 'Lyrics.com', 'search_url': 'https://www.lyrics.com/serp.php?st={query}', 'lyrics_selector': 'pre#lyric-body-text', 'base_url': 'https://www.lyrics.com'}
+]
 
-def translate_text(text, dest='fa'):
+# --- مدیریت دیتابیس کش ---
+def db_query(query, params=()):
     try:
-        translator = Translator()
-        translation = translator.translate(text, dest=dest)
-        return translation.text
+        conn = sqlite3.connect('cache.db', check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        result = cursor.fetchall()
+        conn.commit()
+        conn.close()
+        return result
     except Exception as e:
-        print(f"Translation error: {e}")
-        return "خطا در ترجمه"
+        logger.error(f"Database query failed: {e}")
+        return []
 
-def handle_message(update: Update, context: CallbackContext):
-    if update.channel_post:
-        message = update.channel_post
-        text = message.text
-        if text:
-            keyboard = [[InlineKeyboardButton("Translate", callback_data="translate")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
+def init_db():
+    logger.info("Initializing database...")
+    db_query('CREATE TABLE IF NOT EXISTS translations (text TEXT PRIMARY KEY, translation TEXT)')
+    db_query('CREATE TABLE IF NOT EXISTS lyrics (song_title TEXT PRIMARY KEY, lyrics TEXT)')
+    logger.info("Database initialized successfully.")
+
+# --- توابع اصلی ---
+async def translate_standard_async(text):
+    cached = db_query('SELECT translation FROM translations WHERE text = ?', (text,))
+    if cached:
+        return cached[0][0]
+    
+    async with aiohttp.ClientSession() as session:
+        try:
+            url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=fa&dt=t&q={quote_plus(text)}"
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    translation = "".join([sentence[0] for sentence in data[0] if sentence[0]])
+                    db_query('INSERT OR REPLACE INTO translations (text, translation) VALUES (?, ?)', (text, translation))
+                    return translation
+        except Exception as e:
+            logger.error(f"Translation failed: {e}")
+            return "Error during translation."
+
+async def fetch_url(session, url, headers):
+    try:
+        async with session.get(url, headers=headers, timeout=15) as response:
+            return await response.text() if response.status == 200 else None
+    except Exception as e:
+        logger.error(f"Exception while fetching {url}: {e}")
+        return None
+
+async def scrape_lyrics(song_title, artist):
+    query = f"{artist} {song_title}"
+    cached = db_query('SELECT lyrics FROM lyrics WHERE song_title = ?', (query,))
+    if cached:
+        logger.info(f"Lyrics CACHE HIT for: {query}")
+        return cached[0][0]
+    
+    async with aiohttp.ClientSession() as session:
+        for site in SITES:
             try:
-                context.bot.send_message(
-                    chat_id=message.chat_id,
-                    text="👇 ترجمه فارسی",
-                    reply_to_message_id=message.message_id,
-                    reply_markup=reply_markup
-                )
+                search_url = site['search_url'].format(query=quote_plus(query))
+                headers = {'User-Agent': random.choice(USER_AGENTS)}
+                search_html = await fetch_url(session, search_url, headers)
+                if not search_html: continue
+
+                soup = BeautifulSoup(search_html, 'lxml')
+                link_tag = soup.find('a', href=re.compile(r'/lyrics/|lyric\.php'))
+                if not link_tag or not link_tag.get('href'): continue
+                
+                lyrics_url = link_tag['href']
+                if not lyrics_url.startswith('http'):
+                    lyrics_url = site['base_url'] + lyrics_url
+                
+                lyrics_html = await fetch_url(session, lyrics_url, headers)
+                if not lyrics_html: continue
+
+                lyrics_soup = BeautifulSoup(lyrics_html, 'lxml')
+                lyrics_elem = lyrics_soup.select_one(site['lyrics_selector'])
+                if lyrics_elem:
+                    lyrics = lyrics_elem.get_text(separator='\n', strip=True)
+                    lyrics_formatted = f"📜 **Lyrics for {song_title} by {artist}**\n\n{lyrics}"
+                    db_query('INSERT OR REPLACE INTO lyrics (song_title, lyrics) VALUES (?, ?)', (query, lyrics_formatted))
+                    return lyrics_formatted
             except Exception as e:
-                print(f"Error sending message: {e}")
-
-def button_click(update: Update, context: CallbackContext):
-    query = update.callback_query
-    original_message = query.message.reply_to_message
+                logger.error(f"Error scraping {site['name']} for '{query}': {e}")
     
-    if original_message and original_message.text:
-        translated_text = translate_text(original_message.text)
-        query.answer(translated_text, show_alert=True)
+    return f"Sorry, lyrics for '{song_title}' by '{artist}' were not found."
 
-def run_bot():
-    print("Starting bot...")
+def get_song_details(message):
+    if message.audio:
+        return message.audio.performer, message.audio.title
+    elif message.document and message.document.mime_type in ('audio/mpeg', 'audio/mp3'):
+        filename = message.document.file_name.rsplit('.', 1)[0]
+        match = re.match(r'(.*?)\s*[-–—]\s*(.*)', filename)
+        if match:
+            return match.group(1).strip(), match.group(2).strip()
+        else:
+            return "Unknown Artist", filename.strip()
+    return None, None
+
+# --- توابع ربات ---
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    args = context.args
+    
+    if args and args[0].startswith('lyrics__'):
+        await update.message.reply_text("Processing your request, please wait...")
+        try:
+            payload_parts = args[0].split('__')
+            if len(payload_parts) == 3:
+                artist = unquote_plus(payload_parts[1])
+                title = unquote_plus(payload_parts[2])
+                lyrics_text = await scrape_lyrics(title, artist)
+                await update.message.reply_text(lyrics_text, parse_mode='Markdown')
+            else:
+                await update.message.reply_text("Error: The link is invalid.")
+        except Exception as e:
+            logger.error(f"Deep link failed: {e}")
+            await update.message.reply_text("An unexpected error occurred.")
+    else:
+        channel_id_str = str(CHANNEL_ID).replace('-100', '')
+        channel_link = f"https://t.me/c/{channel_id_str}" if CHANNEL_ID < -1000000000000 else f"https://t.me/{CHANNEL_ID}"
+        keyboard = [[InlineKeyboardButton("Contact", url=f"https://t.me/{USERNAME}"), InlineKeyboardButton("Channel", url=channel_link)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_html(rf"Hello {user.mention_html()},\nThis bot provides translation and lyrics.", reply_markup=reply_markup)
+
+async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.channel_post
+    if not message or message.chat.id != CHANNEL_ID: return
+    
     try:
-        updater = Updater(TOKEN, use_context=True)
-        dp = updater.dispatcher
-        
-        dp.add_handler(MessageHandler(Filters.text & Filters.chat_type.channel, handle_message))
-        dp.add_handler(CallbackQueryHandler(button_click))
-        
-        updater.start_polling()
-        print("Bot started successfully!")
-        updater.idle()
+        if message.text:
+            keyboard = [[InlineKeyboardButton("Translate", callback_data='translate_text')]]
+            await message.reply_text("Click to translate:", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            artist, title = get_song_details(message)
+            if artist and title:
+                safe_artist = quote_plus(artist)
+                safe_title = quote_plus(title)
+                payload = f"lyrics__{safe_artist}__{safe_title}"
+                deep_link = f"https://t.me/{context.bot.username}?start={payload}"
+                keyboard = [[InlineKeyboardButton("📜 Show Lyrics", url=deep_link)]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await message.reply_text("Click here for lyrics:", reply_markup=reply_markup)
     except Exception as e:
-        print(f"Bot error: {e}")
-        # به جای ری‌استارت بی‌نهایت، فقط لاگ می‌کنیم
-        # اگه نیاز به ری‌استارت داری، از سیستم مدیریت رندر استفاده کن
+        logger.error(f"Error in handle_channel_post: {e}")
 
-if __name__ == "__main__":
-    print("Starting application...")
+async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query.data == 'translate_text':
+        original_text = query.message.text
+        translated_text = await translate_standard_async(original_text)
+        try:
+            if len(translated_text) <= 200:
+                await query.answer(text=translated_text, show_alert=True)
+            else:
+                await query.answer(text="Translation is long, sent to private chat.")
+                await context.bot.send_message(chat_id=query.from_user.id, text=f"**Translation:**\n\n{translated_text}", parse_mode='Markdown')
+        except BadRequest as e:
+            if "Query is too old" in str(e):
+                logger.warning("Query was too old.")
+            else:
+                raise e
+
+def main() -> None:
+    init_db()
     
-    # استارت ربات توی یه ترد جدا
-    bot_thread = Thread(target=run_bot)
-    bot_thread.daemon = True
-    bot_thread.start()
+    port = int(os.environ.get('PORT', 8080))
+    from threading import Thread
+    Thread(target=lambda: app.run(host='0.0.0.0', port=port), daemon=True).start()
+
+    request = HTTPXRequest(connect_timeout=10, read_timeout=20)
+    application = Application.builder().token(TOKEN).request(request).build()
     
-    # استارت اپلیکیشن Flask
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_channel_post))
+    application.add_handler(CallbackQueryHandler(button_callback_handler))
+    
+    logger.info("Starting bot (v46 - Deeplink Fix)...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == '__main__':
+    main()
