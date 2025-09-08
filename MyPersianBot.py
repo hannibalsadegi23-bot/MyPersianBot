@@ -2,7 +2,7 @@ import os
 from threading import Thread
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CallbackContext, CallbackQueryHandler, MessageHandler, Filters
+from telegram.ext import Updater, CallbackContext, CallbackQueryHandler, MessageHandler, filters
 from googletrans import Translator
 
 TOKEN = os.environ.get('BOT_TOKEN')
@@ -56,7 +56,8 @@ def run_bot():
         updater = Updater(TOKEN)
         dp = updater.dispatcher
         
-        dp.add_handler(MessageHandler(Filters.TEXT & Filters.CHAT_TYPE_CHANNEL, handle_message))
+        # استفاده از filters به جای Filters
+        dp.add_handler(MessageHandler(filters.TEXT & filters.CHAT_TYPE_CHANNEL, handle_message))
         dp.add_handler(CallbackQueryHandler(button_click))
         
         updater.start_polling()
